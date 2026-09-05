@@ -1,0 +1,124 @@
+.sidebar {
+  width: 300px;
+  background-color: var(--glass-bg);
+  backdrop-filter: blur(16px);
+  border-right: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  padding: 24px 16px;
+  box-shadow: var(--glass-shadow);
+  z-index: 10;
+  overflow-y: auto;
+}
+
+.sidebar-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 0 8px 32px 8px;
+}
+
+.logo-icon {
+  color: var(--accent-gold);
+}
+
+.logo-text {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.5px;
+}
+
+.logo-text span {
+  color: var(--text-secondary);
+  font-weight: 300;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  font-weight: 500;
+  font-size: 0.95rem;
+}
+
+.nav-item:hover {
+  background-color: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.nav-item.active {
+  background-color: rgba(59, 130, 246, 0.15);
+  color: var(--accent-blue);
+  border-left: 3px solid var(--accent-blue);
+}
+
+.nav-divider {
+  height: 1px;
+  background-color: var(--glass-border);
+  margin: 16px 8px;
+}
+
+.nav-subtitle {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  letter-spacing: 1px;
+  padding: 0 16px;
+  margin-bottom: 8px;
+}
+
+.case-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: 4px;
+}
+
+.case-header {
+  padding-left: 8px;
+}
+
+.case-icon {
+  color: var(--accent-gold);
+}
+
+.subfolders-list {
+  display: flex;
+  flex-direction: column;
+  margin-top: 4px;
+}
+
+.subfolder-item {
+  padding-left: 38px;
+  font-size: 0.85rem;
+  position: relative;
+}
+
+.tree-line {
+  position: absolute;
+  left: 17px;
+  top: -10px;
+  bottom: 15px;
+  width: 1px;
+  border-left: 1px dashed var(--text-muted);
+}
+
+.subfolder-item::before {
+  content: '';
+  position: absolute;
+  left: 17px;
+  top: 15px;
+  width: 12px;
+  border-top: 1px dashed var(--text-muted);
+}

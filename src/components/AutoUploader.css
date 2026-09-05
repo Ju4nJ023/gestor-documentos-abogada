@@ -1,0 +1,78 @@
+.auto-uploader {
+  width: 100%;
+  border: 2px dashed var(--glass-border);
+  border-radius: var(--radius-lg);
+  padding: 40px 20px;
+  text-align: center;
+  background-color: rgba(30, 41, 59, 0.4);
+  backdrop-filter: blur(8px);
+  cursor: pointer;
+  transition: all 0.3s ease;
+  margin-bottom: 32px;
+}
+
+.auto-uploader:hover {
+  border-color: var(--accent-blue);
+  background-color: rgba(59, 130, 246, 0.05);
+}
+
+.auto-uploader.active {
+  border-style: solid;
+  border-color: var(--accent-blue);
+  background-color: rgba(59, 130, 246, 0.1);
+  cursor: default;
+}
+
+.uploader-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.upload-icon {
+  color: var(--accent-blue);
+  margin-bottom: 8px;
+}
+
+.uploader-content h3 {
+  font-size: 1.25rem;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.uploader-content p {
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+}
+
+.spinner {
+  color: var(--accent-gold);
+  animation: spin 1.5s linear infinite;
+  margin-bottom: 8px;
+}
+
+.success-icon {
+  color: var(--accent-green);
+  margin-bottom: 8px;
+}
+
+.log-text {
+  color: var(--accent-gold) !important;
+  font-weight: 500;
+  margin-top: 8px;
+}
+
+.animate-pulse {
+  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: .5; }
+}
