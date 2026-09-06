@@ -5,9 +5,11 @@ import './FileGrid.css';
 
 interface FileGridProps {
   files: FileData[];
+  onView: (file: FileData) => void;
+  onDelete: (fileId: string) => void;
 }
 
-export const FileGrid: React.FC<FileGridProps> = ({ files }) => {
+export const FileGrid: React.FC<FileGridProps> = ({ files, onView, onDelete }) => {
   if (files.length === 0) {
     return (
       <div className="empty-state animate-fade-in">
@@ -19,7 +21,13 @@ export const FileGrid: React.FC<FileGridProps> = ({ files }) => {
   return (
     <div className="file-grid">
       {files.map((file, index) => (
-        <FileCard key={file.id} file={file} index={index} />
+        <FileCard 
+          key={file.id} 
+          file={file} 
+          index={index} 
+          onView={onView}
+          onDelete={onDelete}
+        />
       ))}
     </div>
   );

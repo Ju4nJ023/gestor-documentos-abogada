@@ -1,14 +1,18 @@
-import React from 'react';
-import { FileText, Video, FileImage, FileAudio, File, Download, MoreVertical } from 'lucide-react';
+import React, { useState } from 'react';
+import { FileText, Video, FileImage, FileAudio, File, Eye, MoreVertical, Trash2 } from 'lucide-react';
 import './FileCard.css';
 import type { FileData } from '../data/mockFiles';
 
 interface FileCardProps {
   file: FileData;
   index: number;
+  onView: (file: FileData) => void;
+  onDelete: (fileId: string) => void;
 }
 
-export const FileCard: React.FC<FileCardProps> = ({ file, index }) => {
+export const FileCard: React.FC<FileCardProps> = ({ file, index, onView, onDelete }) => {
+  const [showMenu, setShowMenu] = useState(false);
+
   const getFileIcon = () => {
     switch (file.type) {
       case 'pdf': return <FileText className="file-icon pdf-icon" size={32} />;
@@ -20,18 +24,41 @@ export const FileCard: React.FC<FileCardProps> = ({ file, index }) => {
     }
   };
 
+  const toggleMenu = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    setShowMenu(!showMenu);
+  };
+
+  const handleDelete = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    onDelete(file.id);
+    setShowMenu(false);
+  };
+
   return (
     <div 
       className="file-card animate-fade-in" 
       style={{ animationDelay: `${0.1 + index * 0.05}s` }}
+      onClick={() => onView(file)}
     >
       <div className="file-card-header">
         <div className="icon-container">
           {getFileIcon()}
         </div>
-        <button className="action-button">
-          <MoreVertical size={16} />
-        </button>
+        
+        <div className="action-menu-container">
+          <button className="action-button" onClick={toggleMenu}>
+            <MoreVertical size={16} />
+          </button>
+          
+          {showMenu && (
+            <div className="dropdown-menu">
+              <button className="dropdown-item text-danger" onClick={handleDelete}>
+                <Trash2 size={14} /> Eliminar
+              </button>
+            </div>
+          )}
+        </div>
       </div>
       
       <div className="file-info">
@@ -45,8 +72,8 @@ export const FileCard: React.FC<FileCardProps> = ({ file, index }) => {
       </div>
       
       <div className="file-card-overlay">
-        <button className="download-btn">
-          <Download size={16} /> Abrir Documento
+        <button className="download-btn" onClick={(e) => { e.stopPropagation(); onView(file); }}>
+          <Eye size={16} /> Abrir Documento
         </button>
       </div>
     </div>

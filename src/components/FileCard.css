@@ -6,7 +6,7 @@
   display: flex;
   flex-direction: column;
   position: relative;
-  overflow: hidden;
+  overflow: visible; /* Changed from hidden to allow dropdown */
   transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
   backdrop-filter: blur(16px);
@@ -32,15 +32,17 @@
   background-color: rgba(255, 255, 255, 0.05);
 }
 
-.file-icon {
-  opacity: 0.9;
-}
+.file-icon { opacity: 0.9; }
 .pdf-icon { color: var(--accent-red); }
 .video-icon { color: var(--accent-blue); }
 .word-icon { color: var(--accent-blue); }
 .image-icon { color: var(--accent-green); }
 .audio-icon { color: var(--accent-gold); }
 .default-icon { color: var(--text-secondary); }
+
+.action-menu-container {
+  position: relative;
+}
 
 .action-button {
   background: transparent;
@@ -55,6 +57,47 @@
 .action-button:hover {
   background-color: rgba(255, 255, 255, 0.1);
   color: var(--text-primary);
+}
+
+.dropdown-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  background-color: var(--bg-panel);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: 4px;
+  min-width: 120px;
+  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+  z-index: 20;
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background-color 0.2s;
+  color: var(--text-primary);
+}
+
+.dropdown-item:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.dropdown-item.text-danger {
+  color: #f87171;
+}
+
+.dropdown-item.text-danger:hover {
+  background-color: rgba(239, 68, 68, 0.1);
 }
 
 .file-info {
@@ -102,10 +145,16 @@
   opacity: 0;
   transition: opacity 0.3s ease;
   border-radius: var(--radius-lg);
+  pointer-events: none; /* Prevents blocking the menu */
 }
 
 .file-card:hover .file-card-overlay {
   opacity: 1;
+}
+
+/* Ensure action menu stays above overlay */
+.file-card:hover .action-menu-container {
+  z-index: 10;
 }
 
 .download-btn {
@@ -121,6 +170,7 @@
   cursor: pointer;
   transform: translateY(10px);
   transition: all 0.3s ease;
+  pointer-events: auto; /* Re-enable clicks */
 }
 
 .file-card:hover .download-btn {

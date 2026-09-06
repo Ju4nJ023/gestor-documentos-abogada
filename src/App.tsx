@@ -5,6 +5,7 @@ import { SearchBar } from './components/SearchBar';
 import { FilterPills } from './components/FilterPills';
 import { FileGrid } from './components/FileGrid';
 import { AutoUploader } from './components/AutoUploader';
+import { FileViewerModal } from './components/FileViewerModal';
 import { initialFiles } from './data/mockFiles';
 import type { FileData, FileType } from './data/mockFiles';
 
@@ -17,6 +18,8 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeType, setActiveType] = useState<FileType | null>(null);
 
+  const [viewingFile, setViewingFile] = useState<FileData | null>(null);
+
   const handleSelectFolder = (caseName: string | null, subfolder: string | null) => {
     setSelectedCase(caseName);
     setSelectedSubfolder(subfolder);
@@ -24,9 +27,14 @@ function App() {
 
   const handleAutoSortComplete = (newFile: FileData) => {
     setFiles(prev => [newFile, ...prev]);
-    // Optional: Switch to the newly created folder to see the file
-    // setSelectedCase(newFile.caseName);
-    // setSelectedSubfolder(newFile.subfolder);
+  };
+
+  const handleDeleteFile = (fileId: string) => {
+    setFiles(prev => prev.filter(f => f.id !== fileId));
+  };
+
+  const handleViewFile = (file: FileData) => {
+    setViewingFile(file);
   };
 
   const filteredFiles = useMemo(() => {
@@ -44,7 +52,6 @@ function App() {
     });
   }, [files, selectedCase, selectedSubfolder, searchQuery, activeType]);
 
-  // Construir el título de la página basado en la selección
   const getPageTitle = () => {
     if (!selectedCase) return 'Todos los Archivos';
     if (selectedCase && !selectedSubfolder) return selectedCase;
@@ -68,7 +75,6 @@ function App() {
           </h1>
         </header>
 
-        {/* Simulador de Subida Automática con IA */}
         <AutoUploader onAutoSortComplete={handleAutoSortComplete} />
 
         <SearchBar 
@@ -81,8 +87,20 @@ function App() {
           onFilterType={setActiveType} 
         />
 
-        <FileGrid files={filteredFiles} />
+        <FileGrid 
+          files={filteredFiles} 
+          onView={handleViewFile}
+          onDelete={handleDeleteFile}
+        />
       </main>
+
+      {/* Visor de Documentos */}
+      {viewingFile && (
+        <FileViewerModal 
+          file={viewingFile} 
+          onClose={() => setViewingFile(null)} 
+        />
+      )}
     </div>
   );
 }
