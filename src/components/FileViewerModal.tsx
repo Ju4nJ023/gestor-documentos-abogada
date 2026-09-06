@@ -1,7 +1,7 @@
 import React from 'react';
 import { X, Download, FileText, Video, FileImage, FileAudio, File } from 'lucide-react';
 import './FileViewerModal.css';
-import { FileData } from '../data/mockFiles';
+import type { FileData } from '../data/mockFiles';
 
 interface FileViewerModalProps {
   file: FileData;
