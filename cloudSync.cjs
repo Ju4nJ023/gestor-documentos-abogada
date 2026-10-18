@@ -26,6 +26,16 @@ function toSafeStorageKey(caseName, subfolder, fileName) {
 }
 
 /**
+ * Limpia la URL de Supabase por si el usuario pega "/rest/v1/" al final
+ */
+function normalizeSupabaseUrl(rawUrl) {
+    return String(rawUrl || '')
+        .trim()
+        .replace(/\/rest\/v1\/?$/i, '')
+        .replace(/\/+$/, '');
+}
+
+/**
  * Obtiene o inicializa el cliente de Supabase si las credenciales están configuradas
  */
 function getSupabase() {
@@ -34,7 +44,7 @@ function getSupabase() {
         return null;
     }
     if (!supabaseClient) {
-        const url = getSecret('SUPABASE_URL') || getSecret('VITE_SUPABASE_URL');
+        const url = normalizeSupabaseUrl(getSecret('SUPABASE_URL') || getSecret('VITE_SUPABASE_URL'));
         const key = getSecret('SUPABASE_KEY') || getSecret('VITE_SUPABASE_ANON_KEY');
         supabaseClient = createClient(url, key, {
             auth: { persistSession: false }

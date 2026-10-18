@@ -10,11 +10,18 @@ const LS_SUPABASE_KEY = 'lexvault_supabase_key';
 let cachedSupabase: SupabaseClient | null = null;
 let cachedKeySignature = '';
 
+export function normalizeSupabaseUrl(raw: string): string {
+  return (raw || '')
+    .trim()
+    .replace(/\/rest\/v1\/?$/i, '')
+    .replace(/\/+$/, '');
+}
+
 export function getFrontendSupabaseCredentials() {
-  const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+  const envUrl = normalizeSupabaseUrl(import.meta.env.VITE_SUPABASE_URL || '');
   const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
 
-  const lsUrl = (localStorage.getItem(LS_SUPABASE_URL) || '').trim();
+  const lsUrl = normalizeSupabaseUrl(localStorage.getItem(LS_SUPABASE_URL) || '');
   const lsKey = (localStorage.getItem(LS_SUPABASE_KEY) || '').trim();
 
   const url =

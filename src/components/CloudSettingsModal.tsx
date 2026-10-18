@@ -36,14 +36,18 @@ CREATE TABLE IF NOT EXISTS public.documents (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.cases TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.documents TO anon, authenticated, service_role;
+
 ALTER TABLE public.cases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Acceso completo a cases" ON public.cases;
-CREATE POLICY "Acceso completo a cases" ON public.cases FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Acceso completo a cases" ON public.cases FOR ALL TO public USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Acceso completo a documents" ON public.documents;
-CREATE POLICY "Acceso completo a documents" ON public.documents FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Acceso completo a documents" ON public.documents FOR ALL TO public USING (true) WITH CHECK (true);
 
 INSERT INTO storage.buckets (id, name, public)
 VALUES ('lexvault-files', 'lexvault-files', true)

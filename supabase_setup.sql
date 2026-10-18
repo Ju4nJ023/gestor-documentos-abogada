@@ -31,17 +31,21 @@ CREATE TABLE IF NOT EXISTS public.documents (
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. Habilitar políticas de acceso para la aplicación
+-- 3. Habilitar permisos y políticas de acceso para la aplicación
+GRANT USAGE ON SCHEMA public TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.cases TO anon, authenticated, service_role;
+GRANT ALL ON TABLE public.documents TO anon, authenticated, service_role;
+
 ALTER TABLE public.cases ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.documents ENABLE ROW LEVEL SECURITY;
 
 DROP POLICY IF EXISTS "Acceso completo a cases" ON public.cases;
 CREATE POLICY "Acceso completo a cases" ON public.cases
-    FOR ALL USING (true) WITH CHECK (true);
+    FOR ALL TO public USING (true) WITH CHECK (true);
 
 DROP POLICY IF EXISTS "Acceso completo a documents" ON public.documents;
 CREATE POLICY "Acceso completo a documents" ON public.documents
-    FOR ALL USING (true) WITH CHECK (true);
+    FOR ALL TO public USING (true) WITH CHECK (true);
 
 -- 4. Crear Bucket de Almacenamiento para los PDFs, Words y Pruebas
 INSERT INTO storage.buckets (id, name, public)
