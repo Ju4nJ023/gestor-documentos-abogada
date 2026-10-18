@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Video, FileImage, FileAudio, File, Eye, MoreVertical, Trash2 } from 'lucide-react';
+import { FileText, Video, FileImage, FileAudio, File, Eye, MoreVertical, Trash2, AlertTriangle } from 'lucide-react';
 import './FileCard.css';
 import type { FileData } from '../data/mockFiles';
 
@@ -31,23 +31,33 @@ export const FileCard: React.FC<FileCardProps> = ({ file, index, onView, onDelet
 
   const handleDelete = (e: React.MouseEvent) => {
     e.stopPropagation();
-    onDelete(file.id);
+    if (window.confirm(`¿Enviar "${file.name}" a la Papelera de Seguridad?`)) {
+      onDelete(file.id);
+    }
     setShowMenu(false);
   };
 
+  const isNeedsReview = file.status === 'needs_review';
+
   return (
     <div 
-      className="file-card animate-fade-in" 
-      style={{ animationDelay: `${0.1 + index * 0.05}s` }}
+      className={`file-card animate-fade-in ${isNeedsReview ? 'card-needs-review' : ''}`} 
+      style={{ animationDelay: `${0.1 + index * 0.04}s` }}
       onClick={() => onView(file)}
     >
       <div className="file-card-header">
         <div className="icon-container">
           {getFileIcon()}
         </div>
+
+        {isNeedsReview && (
+          <span className="card-badge-review" title={file.reviewReason || 'Requiere revisión'}>
+            <AlertTriangle size={12} /> Revisar
+          </span>
+        )}
         
         <div className="action-menu-container">
-          <button className="action-button" onClick={toggleMenu}>
+          <button className="action-button" onClick={toggleMenu} title="Opciones">
             <MoreVertical size={16} />
           </button>
           
@@ -63,7 +73,31 @@ export const FileCard: React.FC<FileCardProps> = ({ file, index, onView, onDelet
       
       <div className="file-info">
         <h3 className="file-name" title={file.name}>{file.name}</h3>
+        {file.originalName && file.originalName !== file.name && (
+          <p className="file-original-name" title={`Descargado como: ${file.originalName}`}>
+            Origen: {file.originalName}
+          </p>
+        )}
         <p className="file-category">{file.caseName} / {file.subfolder}</p>
+        {file.summary && (
+          <p
+            className="file-summary-snippet"
+            title={file.summary}
+            style={{
+              fontSize: '0.76rem',
+              color: 'var(--text-muted)',
+              marginTop: '6px',
+              display: '-webkit-box',
+              WebkitLineClamp: 2,
+              WebkitBoxOrient: 'vertical',
+              overflow: 'hidden',
+              lineHeight: 1.35,
+              opacity: 0.85
+            }}
+          >
+            {file.summary}
+          </p>
+        )}
       </div>
       
       <div className="file-meta">
@@ -73,7 +107,7 @@ export const FileCard: React.FC<FileCardProps> = ({ file, index, onView, onDelet
       
       <div className="file-card-overlay">
         <button className="download-btn" onClick={(e) => { e.stopPropagation(); onView(file); }}>
-          <Eye size={16} /> Abrir Documento
+          <Eye size={16} /> {isNeedsReview ? 'Revisar y Validar' : 'Ver Documento'}
         </button>
       </div>
     </div>

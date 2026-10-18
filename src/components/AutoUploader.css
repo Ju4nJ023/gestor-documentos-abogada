@@ -1,70 +1,78 @@
 .auto-uploader {
   width: 100%;
-  border: 2px dashed var(--glass-border);
-  border-radius: var(--radius-lg);
-  padding: 40px 20px;
+  border: 2px dashed rgba(99, 102, 241, 0.35);
+  border-radius: var(--radius-lg, 12px);
+  padding: 24px 20px;
   text-align: center;
-  background-color: rgba(30, 41, 59, 0.4);
-  backdrop-filter: blur(8px);
+  background: linear-gradient(135deg, rgba(30, 41, 59, 0.5), rgba(15, 23, 42, 0.6));
+  backdrop-filter: blur(12px);
   cursor: pointer;
-  transition: all 0.3s ease;
-  margin-bottom: 32px;
+  transition: all 0.25s ease;
+  margin-bottom: 24px;
 }
 
-.auto-uploader:hover {
-  border-color: var(--accent-blue);
-  background-color: rgba(59, 130, 246, 0.05);
+.auto-uploader:hover, .auto-uploader.drag-over {
+  border-color: #6366f1;
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.12), rgba(15, 23, 42, 0.8));
+  box-shadow: 0 4px 20px rgba(99, 102, 241, 0.15);
+  transform: translateY(-1px);
 }
 
 .auto-uploader.active {
   border-style: solid;
-  border-color: var(--accent-blue);
-  background-color: rgba(59, 130, 246, 0.1);
+  border-color: #6366f1;
+  background: rgba(30, 41, 59, 0.8);
   cursor: default;
 }
 
 .uploader-content {
   display: flex;
-  flex-direction: column;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: 16px;
 }
 
 .upload-icon {
-  color: var(--accent-blue);
-  margin-bottom: 8px;
+  color: #818cf8;
+  flex-shrink: 0;
 }
 
-.uploader-content h3 {
-  font-size: 1.25rem;
-  color: var(--text-primary);
+.uploader-text {
+  text-align: left;
+}
+
+.uploader-text h4 {
+  font-size: 1rem;
+  color: var(--text-primary, #f8fafc);
+  margin: 0 0 4px 0;
   font-weight: 600;
 }
 
-.uploader-content p {
-  color: var(--text-secondary);
-  font-size: 0.95rem;
+.uploader-text p {
+  color: var(--text-muted, #94a3b8);
+  font-size: 0.85rem;
+  margin: 0;
 }
 
 .spinner {
-  color: var(--accent-gold);
-  animation: spin 1.5s linear infinite;
-  margin-bottom: 8px;
+  color: #fbbf24;
+  animation: spin 1.2s linear infinite;
+  flex-shrink: 0;
 }
 
 .success-icon {
-  color: var(--accent-green);
-  margin-bottom: 8px;
+  color: #34d399;
+  flex-shrink: 0;
+}
+
+.error-icon {
+  color: #f87171;
+  flex-shrink: 0;
 }
 
 .log-text {
-  color: var(--accent-gold) !important;
+  color: #fbbf24 !important;
   font-weight: 500;
-  margin-top: 8px;
-}
-
-.animate-pulse {
-  animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 @keyframes spin {

@@ -1,41 +1,94 @@
 .search-container {
-  margin-bottom: 24px;
+  margin-bottom: 20px;
   width: 100%;
+  background: rgba(30, 41, 59, 0.75);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+  border-radius: var(--radius-lg);
+  padding: 14px 18px;
+  box-shadow: 0 8px 20px -4px rgba(0, 0, 0, 0.35);
+}
+
+.search-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.search-label-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #60a5fa;
+  letter-spacing: 0.02em;
+}
+
+.search-results-count {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  padding: 2px 10px;
+  border-radius: 999px;
 }
 
 .search-input-wrapper {
   position: relative;
   width: 100%;
-  max-width: 600px;
+  display: flex;
+  align-items: center;
 }
 
 .search-icon {
   position: absolute;
   left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
-  color: var(--text-muted);
+  color: #60a5fa;
+  pointer-events: none;
 }
 
 .search-input {
   width: 100%;
-  padding: 16px 16px 16px 48px;
-  border-radius: var(--radius-lg);
-  border: 1px solid var(--glass-border);
-  background-color: var(--glass-bg);
+  padding: 14px 110px 14px 48px;
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+  background-color: rgba(15, 23, 42, 0.9);
   color: var(--text-primary);
   font-size: 1rem;
-  backdrop-filter: blur(16px);
   transition: all 0.2s ease;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
 }
 
 .search-input:focus {
   outline: none;
-  border-color: var(--accent-blue);
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.25);
 }
 
 .search-input::placeholder {
-  color: var(--text-muted);
+  color: #94a3b8;
+}
+
+.search-clear-btn {
+  position: absolute;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.35);
+  color: #fca5a5;
+  padding: 6px 12px;
+  border-radius: 8px;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.search-clear-btn:hover {
+  background: rgba(239, 68, 68, 0.28);
 }

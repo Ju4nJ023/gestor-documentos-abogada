@@ -5,14 +5,23 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "robot": "node robot.cjs",
+    "start": "node robot.cjs",
+    "full": "concurrently -n \"ROBOT,VITE\" -c \"cyan,magenta\" \"node robot.cjs\" \"vite\"",
     "build": "tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
+    "@types/multer": "^2.3.0",
     "cors": "^2.8.6",
+    "dotenv": "^18.0.8",
     "express": "^5.2.1",
     "lucide-react": "^1.27.0",
+    "mammoth": "^1.13.0",
+    "multer": "^2.4.0",
+    "pdf-parse": "^2.4.5",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"
   },
@@ -21,6 +30,7 @@
     "@types/react": "^19.2.17",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.3",
+    "concurrently": "^10.0.6",
     "oxlint": "^1.71.0",
     "typescript": "~6.0.2",
     "vite": "^8.1.1"
