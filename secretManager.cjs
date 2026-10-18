@@ -22,6 +22,8 @@ const PLACEHOLDERS = new Set([
     '',
     'tu_api_key_de_gemini_aqui',
     'your_api_key_here',
+    'https://tu-proyecto.supabase.co',
+    'tu_supabase_key_aqui',
     'null',
     'undefined'
 ]);
@@ -48,6 +50,15 @@ function hasGeminiKey() {
 }
 
 /**
+ * Comprueba si existe configuración válida de Supabase para sincronización en la nube.
+ */
+function hasSupabaseConfig() {
+    const url = getSecret('SUPABASE_URL') || getSecret('VITE_SUPABASE_URL');
+    const key = getSecret('SUPABASE_KEY') || getSecret('VITE_SUPABASE_ANON_KEY');
+    return url.startsWith('http') && key.length > 15;
+}
+
+/**
  * Enmascara una clave para poder mostrar estado en consola sin filtrar jamás el secreto.
  * Ejemplo: "AIza....9f2a"
  */
@@ -61,6 +72,8 @@ function getMaskedKeyStatus(keyName = 'GEMINI_API_KEY') {
 module.exports = {
     getSecret,
     hasGeminiKey,
+    hasSupabaseConfig,
     getMaskedKeyStatus,
     PROJECT_ENV_PATH
 };
+

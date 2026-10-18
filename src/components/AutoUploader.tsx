@@ -1,6 +1,7 @@
 import React, { useState, useRef } from 'react';
 import { UploadCloud, CheckCircle, AlertCircle, Loader2 } from 'lucide-react';
 import './AutoUploader.css';
+import { uploadFilesUnified } from '../services/cloudClient';
 
 interface AutoUploaderProps {
   onUploadSuccess: () => void;
@@ -18,24 +19,14 @@ export const AutoUploader: React.FC<AutoUploaderProps> = ({ onUploadSuccess }) =
     setStatus('uploading');
     setLog(`Subiendo ${files.length} archivo(s)...`);
 
-    const formData = new FormData();
-    for (let i = 0; i < files.length; i++) {
-      formData.append('files', files[i]);
-    }
-
     try {
       setStatus('analyzing');
-      setLog('Leyendo documentos, analizando pruebas y generando nombres estandarizados...');
+      setLog('Leyendo documentos, analizando pruebas y sincronizando con el despacho...');
 
-      const response = await fetch('http://localhost:3001/api/upload', {
-        method: 'POST',
-        body: formData,
-      });
-
-      if (!response.ok) throw new Error('Error al procesar los archivos en el servidor');
+      await uploadFilesUnified(files);
 
       setStatus('success');
-      setLog('¡Archivos analizados, clasificados y renombrados con éxito!');
+      setLog('¡Archivos analizados, clasificados y sincronizados con éxito!');
       onUploadSuccess();
 
       setTimeout(() => {

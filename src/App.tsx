@@ -6,13 +6,19 @@ import { FilterPills } from './components/FilterPills';
 import { FileGrid } from './components/FileGrid';
 import { FileViewerModal } from './components/FileViewerModal';
 import { AutoUploader } from './components/AutoUploader';
+import { CloudSettingsModal } from './components/CloudSettingsModal';
+import { LoginGate } from './components/LoginGate';
+import { fetchFilesUnified, deleteFileUnified } from './services/cloudClient';
 import type { FileData, FileType } from './data/mockFiles';
-import { RefreshCcw, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
+import { RefreshCcw, AlertTriangle, ChevronUp, ChevronDown, Cloud } from 'lucide-react';
 
 function App() {
   const [files, setFiles] = useState<FileData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [connectionMode, setConnectionMode] = useState<'local+cloud' | 'local' | 'cloud' | 'offline'>('local');
+  const [cloudConfigured, setCloudConfigured] = useState<boolean>(false);
+  const [showCloudModal, setShowCloudModal] = useState<boolean>(false);
   
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
   const [selectedSubfolder, setSelectedSubfolder] = useState<string | null>(null);
@@ -24,25 +30,26 @@ function App() {
 
   const [viewingFile, setViewingFile] = useState<FileData | null>(null);
 
-  // Fetch real files from our Backend Robot
+  // Obtener archivos desde el Robot Local o desde Supabase en la Nube
   const fetchFiles = async () => {
     try {
-      const response = await fetch('http://localhost:3001/api/files');
-      if (!response.ok) throw new Error('Error al conectar con el Robot Backend');
-      const data = await response.json();
-      setFiles(data);
+      const result = await fetchFilesUnified();
+      setFiles(result.files);
+      setConnectionMode(result.mode);
+      setCloudConfigured(result.cloudConfigured);
       setError(null);
     } catch (err: any) {
+      setConnectionMode('offline');
       setError(err.message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Poll for changes every 2 seconds
+  // Poll for changes every 2.5 seconds
   useEffect(() => {
     fetchFiles();
-    const intervalId = setInterval(fetchFiles, 2000);
+    const intervalId = setInterval(fetchFiles, 2500);
     return () => clearInterval(intervalId);
   }, []);
 
@@ -64,9 +71,10 @@ function App() {
 
   const handleDeleteFile = async (fileId: string) => {
     try {
-      await fetch(`http://localhost:3001/api/files/${fileId}`, {
-        method: 'DELETE'
-      });
+      const target = files.find(f => f.id === fileId);
+      if (target) {
+        await deleteFileUnified(target);
+      }
       setFiles(prev => prev.filter(f => f.id !== fileId));
     } catch (err) {
       console.error('Error al eliminar archivo:', err);
@@ -133,90 +141,132 @@ function App() {
     return `${selectedCase} / ${selectedSubfolder}`;
   };
 
+  const getConnectionLabel = () => {
+    if (error) return 'Sin conexión (Configura Nube o enciende Robot)';
+    if (connectionMode === 'local+cloud') return 'Híbrido: PC + Nube Sincronizados';
+    if (connectionMode === 'cloud') return 'Conectado a Nube (Acceso Remoto)';
+    return 'Sincronizado con PC Local';
+  };
+
   return (
-    <div className="app-container">
-      <Sidebar 
-        files={files}
-        selectedCase={selectedCase}
-        selectedSubfolder={selectedSubfolder}
-        filterOnlyReview={filterOnlyReview}
-        onSelectFolder={handleSelectFolder} 
-        onToggleReviewFilter={handleToggleReviewFilter}
-      />
-      
-      <main className="main-content">
-        <header className="header animate-fade-in">
-          <div className="header-left">
-            <h1 className="page-title">
-              {getPageTitle()}
-              <span className="file-count-badge">
-                ({filteredFiles.length})
-              </span>
-            </h1>
-            {pendingReviewCount > 0 && !filterOnlyReview && (
-              <button 
-                className="review-quick-alert-pill animate-pulse" 
-                onClick={() => handleToggleReviewFilter(true)}
+    <LoginGate>
+      <div className="app-container">
+        <Sidebar 
+          files={files}
+          selectedCase={selectedCase}
+          selectedSubfolder={selectedSubfolder}
+          filterOnlyReview={filterOnlyReview}
+          onSelectFolder={handleSelectFolder} 
+          onToggleReviewFilter={handleToggleReviewFilter}
+        />
+        
+        <main className="main-content">
+          <header className="header animate-fade-in">
+            <div className="header-left">
+              <h1 className="page-title">
+                {getPageTitle()}
+                <span className="file-count-badge">
+                  ({filteredFiles.length})
+                </span>
+              </h1>
+              {pendingReviewCount > 0 && !filterOnlyReview && (
+                <button 
+                  className="review-quick-alert-pill animate-pulse" 
+                  onClick={() => handleToggleReviewFilter(true)}
+                >
+                  <AlertTriangle size={14} />
+                  <span>{pendingReviewCount} requieren tu revisión</span>
+                </button>
+              )}
+            </div>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <button
+                type="button"
+                onClick={() => setShowCloudModal(true)}
+                title="Configurar acceso en la Nube (Supabase + Contraseña)"
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  background: cloudConfigured ? 'rgba(34, 197, 94, 0.14)' : 'rgba(59, 130, 246, 0.16)',
+                  border: cloudConfigured ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(59, 130, 246, 0.4)',
+                  color: cloudConfigured ? '#4ade80' : '#60a5fa',
+                  padding: '6px 12px',
+                  borderRadius: '8px',
+                  fontSize: '0.82rem',
+                  fontWeight: 600,
+                  cursor: 'pointer'
+                }}
               >
-                <AlertTriangle size={14} />
-                <span>{pendingReviewCount} requieren tu revisión</span>
+                <Cloud size={15} />
+                <span>{cloudConfigured ? 'Nube Activa' : 'Conectar Nube'}</span>
               </button>
+
+              <div className="status-indicator" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: error ? '#f87171' : '#4ade80' }}>
+                <RefreshCcw size={16} className={!error ? "animate-spin-slow" : ""} />
+                <span style={{ fontSize: '0.85rem' }}>{getConnectionLabel()}</span>
+              </div>
+            </div>
+          </header>
+
+          {/* Buscador Principal Visible Arriba */}
+          <SearchBar 
+            searchQuery={searchQuery} 
+            setSearchQuery={setSearchQuery} 
+            totalMatches={filteredFiles.length}
+          />
+
+          {/* Zona de Subida y Análisis Directo */}
+          <div className="uploader-section">
+            <div className="uploader-toggle-header" onClick={() => setShowUploader(!showUploader)}>
+              <span>Subida Directa y Clasificación Inmediata</span>
+              {showUploader ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            </div>
+            {showUploader && (
+              <AutoUploader onUploadSuccess={fetchFiles} />
             )}
           </div>
 
-          <div className="status-indicator" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: error ? '#f87171' : '#4ade80' }}>
-            <RefreshCcw size={16} className={!error ? "animate-spin-slow" : ""} />
-            <span style={{ fontSize: '0.85rem' }}>{error ? 'Robot Desconectado' : 'Sincronizado con disco local'}</span>
+          <div className="filter-controls-row">
+            <FilterPills 
+              activeType={activeType} 
+              onFilterType={setActiveType} 
+            />
           </div>
-        </header>
 
-        {/* Buscador Principal Visible Arriba */}
-        <SearchBar 
-          searchQuery={searchQuery} 
-          setSearchQuery={setSearchQuery} 
-          totalMatches={filteredFiles.length}
-        />
-
-        {/* Zona de Subida y Análisis Directo */}
-        <div className="uploader-section">
-          <div className="uploader-toggle-header" onClick={() => setShowUploader(!showUploader)}>
-            <span>Subida Directa y Clasificación Inmediata</span>
-            {showUploader ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </div>
-          {showUploader && (
-            <AutoUploader onUploadSuccess={fetchFiles} />
+          {loading ? (
+            <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Cargando documentos reales...</div>
+          ) : (
+            <FileGrid 
+              files={filteredFiles} 
+              onView={handleViewFile}
+              onDelete={handleDeleteFile}
+            />
           )}
-        </div>
+        </main>
 
-        <div className="filter-controls-row">
-          <FilterPills 
-            activeType={activeType} 
-            onFilterType={setActiveType} 
-          />
-        </div>
-
-        {loading ? (
-          <div style={{ padding: '40px', textAlign: 'center', color: 'var(--text-muted)' }}>Cargando documentos reales...</div>
-        ) : (
-          <FileGrid 
-            files={filteredFiles} 
-            onView={handleViewFile}
-            onDelete={handleDeleteFile}
+        {/* Visor de Documentos con panel de revisión */}
+        {viewingFile && (
+          <FileViewerModal 
+            file={viewingFile} 
+            onClose={() => setViewingFile(null)} 
+            onUpdateFile={handleUpdateFile}
+            onDeleteFile={handleDeleteFile}
           />
         )}
-      </main>
 
-      {/* Visor de Documentos con panel de revisión */}
-      {viewingFile && (
-        <FileViewerModal 
-          file={viewingFile} 
-          onClose={() => setViewingFile(null)} 
-          onUpdateFile={handleUpdateFile}
-          onDeleteFile={handleDeleteFile}
-        />
-      )}
-    </div>
+        {/* Modal de Configuración de Nube Híbrida (Supabase + Contraseña) */}
+        {showCloudModal && (
+          <CloudSettingsModal
+            onClose={() => setShowCloudModal(false)}
+            onConfigSaved={fetchFiles}
+          />
+        )}
+      </div>
+    </LoginGate>
   );
 }
 
 export default App;
+

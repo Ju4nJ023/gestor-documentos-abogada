@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { Briefcase, Folder, ChevronDown, ChevronRight, FolderClosed, AlertTriangle, Plus, Check, X } from 'lucide-react';
 import './Sidebar.css';
 import type { FileData } from '../data/mockFiles';
+import { fetchCasesUnified, createCaseUnified } from '../services/cloudClient';
 
 interface SidebarProps {
   files: FileData[];
@@ -25,14 +26,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
   const [isCreatingCase, setIsCreatingCase] = useState(false);
   const [newCaseName, setNewCaseName] = useState('');
 
-  // Cargar carpetas de casos desde el disco (incluso si están vacías)
+  // Cargar carpetas de casos desde el disco local o Supabase Nube
   const fetchDiskCases = async () => {
     try {
-      const res = await fetch('http://localhost:3001/api/cases');
-      if (res.ok) {
-        const data = await res.json();
-        if (Array.isArray(data)) setDiskCases(data);
-      }
+      const data = await fetchCasesUnified();
+      if (Array.isArray(data)) setDiskCases(data);
     } catch (_) {}
   };
 
@@ -44,20 +42,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
     e.preventDefault();
     if (!newCaseName.trim()) return;
     try {
-      const res = await fetch('http://localhost:3001/api/cases', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ caseName: newCaseName.trim() })
-      });
-      if (res.ok) {
-        const data = await res.json();
-        await fetchDiskCases();
-        setNewCaseName('');
-        setIsCreatingCase(false);
-        if (data.caseName) {
-          onToggleReviewFilter(false);
-          onSelectFolder(data.caseName, null);
-        }
+      const createdName = await createCaseUnified(newCaseName.trim());
+      await fetchDiskCases();
+      setNewCaseName('');
+      setIsCreatingCase(false);
+      if (createdName) {
+        onToggleReviewFilter(false);
+        onSelectFolder(createdName, null);
       }
     } catch (_) {}
   };

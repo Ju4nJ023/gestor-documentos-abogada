@@ -18,6 +18,8 @@ export interface FileData {
   reviewReason?: string;
   summary?: string;
   contentText?: string;
+  publicUrl?: string;
+  storagePath?: string;
 }
 
 export const initialFiles: FileData[] = [

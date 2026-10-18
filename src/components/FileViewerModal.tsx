@@ -5,6 +5,11 @@ import {
 } from 'lucide-react';
 import './FileViewerModal.css';
 import type { FileData } from '../data/mockFiles';
+import {
+  fetchCasesUnified,
+  reviewFileUnified,
+  deleteFileUnified
+} from '../services/cloudClient';
 
 interface FileViewerModalProps {
   file: FileData;
@@ -28,14 +33,34 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [docSearch, setDocSearch] = useState('');
 
-  // URL real del backend para previsualización embebida
-  const viewUrl = `http://localhost:3001/api/files/${file.id}/view`;
+  const isLocalhost =
+    typeof window !== 'undefined' &&
+    (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1');
+
+  // URL real del backend local o URL pública de Supabase Storage cuando se accede desde la Nube
+  const viewUrl =
+    !isLocalhost && file.publicUrl
+      ? file.publicUrl
+      : file.publicUrl && !file.id
+      ? file.publicUrl
+      : `http://localhost:3001/api/files/${file.id}/view`;
 
   const handleOpenInWindows = async () => {
+    if (!isLocalhost && file.publicUrl) {
+      window.open(file.publicUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
     try {
-      await fetch(`http://localhost:3001/api/files/${file.id}/open`, { method: 'POST' });
+      const res = await fetch(`http://localhost:3001/api/files/${file.id}/open`, { method: 'POST' });
+      if (!res.ok && file.publicUrl) {
+        window.open(file.publicUrl, '_blank', 'noopener,noreferrer');
+      }
     } catch (err: any) {
-      setErrorMsg('No se pudo abrir el archivo en Windows');
+      if (file.publicUrl) {
+        window.open(file.publicUrl, '_blank', 'noopener,noreferrer');
+      } else {
+        setErrorMsg('No se pudo abrir el archivo en Windows');
+      }
     }
   };
 
@@ -43,14 +68,13 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
     try {
       await fetch(`http://localhost:3001/api/files/${file.id}/reveal`, { method: 'POST' });
     } catch (err: any) {
-      setErrorMsg('No se pudo abrir la carpeta en Windows');
+      setErrorMsg('Solo disponible cuando estás en el ordenador del despacho');
     }
   };
 
-  // Cargar lista de casos existentes para el desplegable
+  // Cargar lista de casos existentes para el desplegable (Local o Nube)
   useEffect(() => {
-    fetch('http://localhost:3001/api/cases')
-      .then(res => res.json())
+    fetchCasesUnified()
       .then(data => {
         if (Array.isArray(data)) {
           setAvailableCases(data);
@@ -64,20 +88,13 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
     setIsSaving(true);
     setErrorMsg(null);
     try {
-      const response = await fetch(`http://localhost:3001/api/files/${file.id}/review`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          newName: editedName,
-          caseName: editedCase,
-          subfolder: editedSubfolder,
-          status: 'reviewed'
-        })
+      const resData = await reviewFileUnified(file.id, {
+        newName: editedName,
+        caseName: editedCase,
+        subfolder: editedSubfolder,
+        status: 'reviewed'
       });
 
-      if (!response.ok) throw new Error('Error al actualizar el archivo en el servidor');
-      
-      const resData = await response.json();
       onUpdateFile(file.id, {
         id: resData.file?.id || file.id,
         name: resData.file?.name || editedName,
@@ -96,10 +113,7 @@ export const FileViewerModal: React.FC<FileViewerModalProps> = ({
 
   const handleDelete = async () => {
     try {
-      const response = await fetch(`http://localhost:3001/api/files/${file.id}`, {
-        method: 'DELETE'
-      });
-      if (!response.ok) throw new Error('Error al eliminar archivo');
+      await deleteFileUnified(file);
       onDeleteFile(file.id);
       onClose();
     } catch (err: any) {

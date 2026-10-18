@@ -5,9 +5,18 @@ const { execFile } = require('child_process');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const { getSecret, hasGeminiKey, getMaskedKeyStatus } = require('./secretManager.cjs');
+const { getSecret, hasGeminiKey, hasSupabaseConfig, getMaskedKeyStatus } = require('./secretManager.cjs');
 const { extractDocumentData } = require('./extractor.cjs');
 const { classifyDocumentHybrid } = require('./aiAgent.cjs');
+const {
+    syncCaseToCloud,
+    syncFileToCloud,
+    deleteFileFromCloud,
+    syncAllLocalToCloud,
+    getCloudStatus,
+    updateEnvCredentials
+} = require('./cloudSync.cjs');
+
 
 // Directorios de trabajo: Vigilar Descargas, Escritorio y Documentos (tanto local como OneDrive si existen)
 const homeDir = os.homedir();
@@ -361,8 +370,10 @@ async function processAndMoveFile(sourcePath, originalFilename, options = {}) {
         // Guardar metadatos
         const metadata = loadMetadata();
         const relPath = path.relative(DEST_DIR, destPath);
-        metadata[relPath] = {
-            id: Buffer.from(destPath).toString('base64'),
+        const fileId = Buffer.from(destPath).toString('base64');
+        const stats = fs.statSync(destPath);
+        const metaEntry = {
+            id: fileId,
             originalName: originalFilename,
             newName: finalFilename,
             caseName: analysis.casoName,
@@ -375,7 +386,16 @@ async function processAndMoveFile(sourcePath, originalFilename, options = {}) {
             contentText: analysis.contentText || '',
             date: analysis.date
         };
+        metadata[relPath] = metaEntry;
         saveMetadata(metadata);
+
+        // Sincronizar automáticamente con la nube (Supabase) si está configurada
+        syncFileToCloud({
+            ...metaEntry,
+            name: finalFilename,
+            fullPath: destPath,
+            size: (stats.size / (1024 * 1024)).toFixed(2) + ' MB'
+        }).catch(() => {});
     }
     return moved;
 }
@@ -473,6 +493,7 @@ app.post('/api/cases', (req, res) => {
         if (!fs.existsSync(caseDir)) {
             fs.mkdirSync(caseDir, { recursive: true });
         }
+        syncCaseToCloud(finalCaseName).catch(() => {});
         res.json({ success: true, caseName: finalCaseName });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -589,9 +610,10 @@ app.put('/api/files/:id/review', (req, res) => {
         const prevMeta = metadata[oldRel] || {};
         delete metadata[oldRel];
 
-        metadata[newRel] = {
+        const newId = Buffer.from(newFullPath).toString('base64');
+        const updatedEntry = {
             ...prevMeta,
-            id: Buffer.from(newFullPath).toString('base64'),
+            id: newId,
             newName: targetFilename,
             caseName: targetCase,
             subfolder: targetSubfolder,
@@ -599,13 +621,31 @@ app.put('/api/files/:id/review', (req, res) => {
             reviewReason: status === 'reviewed' ? 'Revisado y validado por la letrada' : (prevMeta.reviewReason || 'Pendiente de revisión'),
             date: prevMeta.date || getFormattedDate()
         };
+        metadata[newRel] = updatedEntry;
         saveMetadata(metadata);
+
+        // Sincronizar cambio con Supabase si está configurado
+        if (filePath !== newFullPath) {
+            deleteFileFromCloud({
+                id: req.params.id,
+                name: currentFilename,
+                caseName: prevMeta.caseName || oldRel.split(path.sep)[0],
+                subfolder: prevMeta.subfolder || 'Otros'
+            }).catch(() => {});
+        }
+        const stats = fs.statSync(newFullPath);
+        syncFileToCloud({
+            ...updatedEntry,
+            name: targetFilename,
+            fullPath: newFullPath,
+            size: (stats.size / (1024 * 1024)).toFixed(2) + ' MB'
+        }).catch(() => {});
 
         res.json({
             success: true,
             message: 'Archivo actualizado con éxito',
             file: {
-                id: Buffer.from(newFullPath).toString('base64'),
+                id: newId,
                 name: targetFilename,
                 caseName: targetCase,
                 subfolder: targetSubfolder,
@@ -631,12 +671,24 @@ app.delete('/api/files/:id', (req, res) => {
         }
         const safeTrashName = `${Date.now()}_${path.basename(filePath)}`;
         const trashPath = path.join(trashDir, safeTrashName);
-        fs.renameSync(filePath, trashPath);
 
         const metadata = loadMetadata();
         const rel = path.relative(DEST_DIR, filePath);
+        const prevMeta = metadata[rel] || {};
+        const oldParts = rel.split(path.sep);
+
+        fs.renameSync(filePath, trashPath);
         delete metadata[rel];
         saveMetadata(metadata);
+
+        // Eliminar también de la nube si estaba sincronizado
+        deleteFileFromCloud({
+            id: req.params.id,
+            name: path.basename(filePath),
+            caseName: prevMeta.caseName || oldParts[0] || 'General',
+            subfolder: prevMeta.subfolder || oldParts[1] || 'Otros'
+        }).catch(() => {});
+
         console.log(`🗑️  [Papelera de Seguridad] Archivo movido a: ${trashPath}`);
         res.json({ success: true, message: 'Archivo enviado a la Papelera de Seguridad (.Papelera)' });
     } catch (err) {
@@ -663,7 +715,7 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
     }
 });
 
-// 8. Estado del motor híbrido y Secret Manager
+// 8. Estado del motor híbrido, Secret Manager y Nube
 app.get('/api/status', (req, res) => {
     res.json({
         online: true,
@@ -671,8 +723,80 @@ app.get('/api/status', (req, res) => {
         engineMode: hasGeminiKey() ? 'Híbrido (Script + Gemini IA)' : 'Híbrido (Script Local)',
         watchDir: WATCH_DIR,
         watchDirs: WATCH_DIRS,
-        destDir: DEST_DIR
+        destDir: DEST_DIR,
+        cloud: getCloudStatus()
     });
+});
+
+// 9. Obtener estado detallado de Nube + Script SQL para configurar Supabase
+app.get('/api/cloud/status', (req, res) => {
+    let sqlScript = '';
+    const sqlPath = path.join(__dirname, 'supabase_setup.sql');
+    if (fs.existsSync(sqlPath)) {
+        sqlScript = fs.readFileSync(sqlPath, 'utf-8');
+    }
+    res.json({
+        ...getCloudStatus(),
+        sqlScript
+    });
+});
+
+// 10. Guardar configuración de Supabase y Contraseña desde la Web en .env y sincronizar
+app.post('/api/cloud/config', async (req, res) => {
+    try {
+        const { supabaseUrl, supabaseKey, appPassword } = req.body || {};
+        updateEnvCredentials({ supabaseUrl, supabaseKey, appPassword });
+
+        let syncResult = { synced: false };
+        if (hasSupabaseConfig()) {
+            const filesList = getAllFiles(DEST_DIR);
+            const casesList = fs.readdirSync(DEST_DIR).filter(item => {
+                const itemPath = path.join(DEST_DIR, item);
+                return fs.statSync(itemPath).isDirectory() && !item.startsWith('.');
+            });
+            syncResult = await syncAllLocalToCloud(filesList, casesList);
+        }
+
+        res.json({
+            success: true,
+            cloud: getCloudStatus(),
+            syncResult
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 11. Forzar sincronización completa de todos los archivos locales hacia Supabase
+app.post('/api/cloud/sync', async (req, res) => {
+    try {
+        const filesList = getAllFiles(DEST_DIR);
+        const casesList = fs.readdirSync(DEST_DIR).filter(item => {
+            const itemPath = path.join(DEST_DIR, item);
+            return fs.statSync(itemPath).isDirectory() && !item.startsWith('.');
+        });
+        const syncResult = await syncAllLocalToCloud(filesList, casesList);
+        res.json({
+            success: true,
+            cloud: getCloudStatus(),
+            syncResult
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// 12. Verificar contraseña de acceso a la aplicación
+app.post('/api/auth/verify', (req, res) => {
+    const expected = getSecret('VITE_APP_PASSWORD');
+    if (!expected) {
+        return res.json({ valid: true, passwordRequired: false });
+    }
+    const provided = String(req.body?.password || '').trim();
+    if (provided === expected) {
+        return res.json({ valid: true, passwordRequired: true });
+    }
+    return res.status(401).json({ valid: false, error: 'Contraseña incorrecta' });
 });
 
 const PORT = Number(getSecret('PORT', '3001')) || 3001;
@@ -681,10 +805,27 @@ app.listen(PORT, () => {
     console.log('==============================================');
     console.log('🤖 ROBOT HÍBRIDO (SCRIPT + AGENTE IA) INICIADO');
     console.log(`🔑 Clave Gemini (.env): ${getMaskedKeyStatus('GEMINI_API_KEY')}`);
+    console.log(`☁️  Nube Supabase: ${hasSupabaseConfig() ? 'Conectada y Sincronizando' : 'Modo Local (Configurable desde el botón Nube en la web)'}`);
     console.log(`👁️  Vigilando (${WATCH_DIRS.length} carpetas):`);
     WATCH_DIRS.forEach(dir => console.log(`    - ${dir}`));
     console.log(`📁 Guardando casos en: ${DEST_DIR}`);
     console.log('==============================================\n');
+
+    // Si Supabase está configurado, sincronizar expedientes locales al arrancar
+    if (hasSupabaseConfig()) {
+        try {
+            const filesList = getAllFiles(DEST_DIR);
+            const casesList = fs.readdirSync(DEST_DIR).filter(item => {
+                const itemPath = path.join(DEST_DIR, item);
+                return fs.statSync(itemPath).isDirectory() && !item.startsWith('.');
+            });
+            syncAllLocalToCloud(filesList, casesList).then(r => {
+                if (r.synced) {
+                    console.log(`☁️  [Sincronización Inicial Nube] ${r.count} documentos sincronizados con Supabase.`);
+                }
+            }).catch(() => {});
+        } catch (_) {}
+    }
 });
 
 // --- ROBOT VIGILANTE MULTI-CARPETA (DESCARGAS, ESCRITORIO Y DOCUMENTOS) ---
