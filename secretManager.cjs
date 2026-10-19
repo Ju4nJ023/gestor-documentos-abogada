@@ -50,9 +50,31 @@ function hasGeminiKey() {
 }
 
 /**
- * Comprueba si existe configuración válida de Supabase para sincronización en la nube.
+ * Comprueba si el modo de Privacidad Estricta Local (RGPD) está activo (por defecto: true).
+ * Cuando está activo, ningún documento ni prueba sale de localhost.
+ */
+function isLocalPrivacyOnly() {
+    const val = getSecret('PRIVACY_LOCAL_ONLY', 'true').toLowerCase();
+    return val !== 'false' && val !== '0';
+}
+
+/**
+ * Obtiene la configuración del servidor de IA Local (Ollama en localhost:11434)
+ */
+function getLocalAIConfig() {
+    return {
+        baseUrl: getSecret('LOCAL_AI_URL', 'http://127.0.0.1:11434'),
+        textModel: getSecret('LOCAL_TEXT_MODEL', 'qwen2.5:3b'),
+        visionModel: getSecret('LOCAL_VISION_MODEL', 'moondream'),
+        privacyLocalOnly: isLocalPrivacyOnly()
+    };
+}
+
+/**
+ * Comprueba si existe configuración válida de Supabase Y si el usuario ha permitido sincronizar fuera de localhost.
  */
 function hasSupabaseConfig() {
+    if (isLocalPrivacyOnly()) return false;
     const url = getSecret('SUPABASE_URL') || getSecret('VITE_SUPABASE_URL');
     const key = getSecret('SUPABASE_KEY') || getSecret('VITE_SUPABASE_ANON_KEY');
     return url.startsWith('http') && key.length > 15;
@@ -60,20 +82,20 @@ function hasSupabaseConfig() {
 
 /**
  * Enmascara una clave para poder mostrar estado en consola sin filtrar jamás el secreto.
- * Ejemplo: "AIza....9f2a"
  */
-function getMaskedKeyStatus(keyName = 'GEMINI_API_KEY') {
-    const key = getSecret(keyName);
-    if (!key) return 'No configurada (Usando motor de Reglas/Script local)';
-    if (key.length <= 8) return 'Configurada (****)';
-    return `Configurada (${key.slice(0, 4)}...${key.slice(-4)})`;
+function getMaskedKeyStatus(keyName = 'LOCAL_AI_URL') {
+    const { baseUrl, textModel, visionModel } = getLocalAIConfig();
+    return `100% Localhost (${baseUrl} | Texto: ${textModel} | Visión: ${visionModel})`;
 }
 
 module.exports = {
     getSecret,
     hasGeminiKey,
+    isLocalPrivacyOnly,
+    getLocalAIConfig,
     hasSupabaseConfig,
     getMaskedKeyStatus,
     PROJECT_ENV_PATH
 };
+
 

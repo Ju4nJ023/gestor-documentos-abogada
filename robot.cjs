@@ -5,9 +5,27 @@ const { execFile } = require('child_process');
 const express = require('express');
 const cors = require('cors');
 const multer = require('multer');
-const { getSecret, hasGeminiKey, hasSupabaseConfig, getMaskedKeyStatus } = require('./secretManager.cjs');
-const { extractDocumentData } = require('./extractor.cjs');
-const { classifyDocumentHybrid } = require('./aiAgent.cjs');
+const {
+    getSecret,
+    isLocalPrivacyOnly,
+    getLocalAIConfig,
+    hasSupabaseConfig,
+    getMaskedKeyStatus
+} = require('./secretManager.cjs');
+const {
+    sanitizeFilename,
+    analyzeWithMultiAgentLocal
+} = require('./agents/orchestrator.cjs');
+const {
+    ensureCaseFolderStructure,
+    executeMoveToCaseFolder
+} = require('./agents/folderExecutorAgent.cjs');
+const {
+    ensureLocalOllamaRunning
+} = require('./agents/localOllamaClient.cjs');
+const {
+    setActiveCaseContext
+} = require('./agents/contextMemory.cjs');
 const {
     syncCaseToCloud,
     syncFileToCloud,
@@ -16,7 +34,6 @@ const {
     getCloudStatus,
     updateEnvCredentials
 } = require('./cloudSync.cjs');
-
 
 // Directorios de trabajo: Vigilar Descargas, Escritorio y Documentos (tanto local como OneDrive si existen)
 const homeDir = os.homedir();
@@ -68,235 +85,20 @@ function saveMetadata(meta) {
     }
 }
 
-// Limpiar cadenas para nombres de archivo válidos en Windows
-function sanitizeFilename(str) {
-    return str
-        .normalize('NFD').replace(/[\u0300-\u036f]/g, '') // Quitar tildes
-        .replace(/[^a-zA-Z0-9_\-]/g, '_') // Sustituir caracteres raros y espacios por _
-        .replace(/_+/g, '_') // Quitar dobles guiones bajos
-        .replace(/^_+|_+$/g, ''); // Quitar guiones al inicio y fin
-}
-
-// Formatear fecha a YYYY-MM-DD
 function getFormattedDate(dateObj = new Date()) {
     return dateObj.toISOString().split('T')[0];
 }
 
-// Extraer fecha del texto si existe
-function findDateInText(text) {
-    // Busca patrones DD/MM/YYYY o DD-MM-YYYY
-    const match = text.match(/\b([0-3]?[0-9])[\/\-]([0-1]?[0-9])[\/\-](20[2-3][0-9])\b/);
-    if (match) {
-        const day = match[1].padStart(2, '0');
-        const month = match[2].padStart(2, '0');
-        const year = match[3];
-        return `${year}-${month}-${day}`;
-    }
-    // Busca años recientes 2023-2026
-    const yearMatch = text.match(/\b(202[0-9])\b/);
-    if (yearMatch) return yearMatch[1];
-    return getFormattedDate();
-}
-
-// --- MOTOR HÍBRIDO (SCRIPT + AGENTE IA) DE ANÁLISIS, CLASIFICACIÓN Y RENOMBRADO ---
-async function analyzeDocument(filePath, originalFilename) {
-    const ext = path.extname(originalFilename).toLowerCase();
-    const stats = fs.statSync(filePath);
-
-    // 1. Detección de casos conocidos en disco
-    let knownCases = [];
-    try {
-        knownCases = fs.readdirSync(DEST_DIR).filter(item => {
-            const itemPath = path.join(DEST_DIR, item);
-            return fs.statSync(itemPath).isDirectory() && !item.startsWith('.');
-        });
-    } catch (_) {}
-
-    const isVideo = ['.mp4', '.avi', '.mov', '.mkv', '.wmv'].includes(ext);
-    const isAudio = ['.mp3', '.wav', '.m4a', '.ogg', '.aac'].includes(ext);
-    const isImage = ['.png', '.jpg', '.jpeg', '.webp'].includes(ext);
-
-    // 2. Extracción del interior del documento (PDF / Word .docx / Texto) mediante extractor.cjs
-    let docData = {
-        fileName: originalFilename,
-        extension: ext,
-        totalPages: 1,
-        charCount: 0,
-        hasReadableText: false,
-        textSample: '',
-        hints: {
-            numeroProcedimiento: null,
-            juzgado: null,
-            dnis: [],
-            matchedKeywords: [],
-            looksLegalByScript: false,
-            suggestedCategory: null
-        }
-    };
-
-    if (['.pdf', '.docx', '.txt'].includes(ext)) {
-        docData = await extractDocumentData(filePath);
-    }
-
-    const extractedText = docData.textSample || '';
-    const textCombined = (originalFilename + ' ' + extractedText).toLowerCase();
-
-    // 3. Ejecutar el Clasificador Híbrido (Script + Agente IA Gemini)
-    const hybrid = await classifyDocumentHybrid(docData, knownCases);
-
-    let matchedCase = hybrid.caseName && hybrid.caseName !== 'Por Revisar' ? hybrid.caseName : null;
-    let confidence = hybrid.confidence >= 85 ? 'alta' : (hybrid.confidence >= 65 ? 'media' : 'baja');
-
-    // Respaldo adicional si aún no se encuentra caso
-    if (!matchedCase) {
-        matchedCase = 'Por Clasificar';
-        confidence = 'baja';
-    }
-
-    // 4. Detección de Categoría y Detalle para el nuevo nombre
-    let subfolder = hybrid.subfolder || 'Otros';
-    let docType = 'Documento';
-    let detail = docData.hints.numeroProcedimiento
-        ? `Autos_${docData.hints.numeroProcedimiento.replace('/', '-')}`
-        : 'General';
-    let needsReview = false;
-    let reviewReason = '';
-
-    if (isVideo) {
-        subfolder = 'Pruebas';
-        docType = 'Prueba_Video';
-        detail = 'Grabacion';
-        needsReview = true;
-        reviewReason = 'Material probatorio audiovisual. Revisar contenido y validar asignación de caso.';
-    } else if (isAudio) {
-        subfolder = 'Pruebas';
-        docType = 'Prueba_Audio';
-        detail = 'Conversacion';
-        needsReview = true;
-        reviewReason = 'Prueba sonora detectada. Requiere revisión para confirmación de partes.';
-    } else if (isImage) {
-        subfolder = 'Pruebas';
-        docType = 'Prueba_Fotografica';
-        detail = 'Inspeccion';
-        needsReview = true;
-        reviewReason = 'Prueba fotográfica recibida. Validar etiquetado y pertinencia.';
-    } else {
-        // Documentos PDF / Word
-        if (textCombined.includes('pericial') || textCombined.includes('dictamen') || textCombined.includes('atestado') || textCombined.includes('informe perito')) {
-            subfolder = 'Pruebas';
-            docType = 'Prueba_Pericial';
-            detail = 'Dictamen_Tecnico';
-            needsReview = true;
-            reviewReason = 'Informe pericial detectado en el texto. Se sugiere verificar el perito y el caso.';
-        } else if (textCombined.includes('testigo') || textCombined.includes('testifical') || textCombined.includes('declaracion') || textCombined.includes('interrogatorio')) {
-            subfolder = 'Pruebas';
-            docType = 'Prueba_Testifical';
-            detail = 'Declaracion';
-            needsReview = true;
-            reviewReason = 'Prueba testifical identificada. Validar nombre del testigo y caso.';
-        } else if (subfolder === 'Facturas y Costas' || textCombined.includes('factura') || textCombined.includes('minuta') || textCombined.includes('costas')) {
-            subfolder = 'Facturas y Costas';
-            docType = 'Factura_Minuta';
-            detail = 'Honorarios';
-            needsReview = confidence === 'baja';
-            reviewReason = 'Documento económico / factura registrado.';
-        } else if (subfolder === 'Notificaciones y Escritos' || textCombined.includes('lexnet') || textCombined.includes('notificacion') || textCombined.includes('notificación')) {
-            subfolder = 'Notificaciones y Escritos';
-            docType = 'Notificacion';
-            detail = docData.hints.numeroProcedimiento ? `Autos_${docData.hints.numeroProcedimiento.replace('/', '-')}` : 'LexNET';
-            needsReview = confidence === 'baja';
-            reviewReason = 'Notificación o escrito procesal clasificado.';
-        } else if (textCombined.includes('prueba') || textCombined.includes('documental') || textCombined.includes('recibo') || textCombined.includes('certificado')) {
-            subfolder = 'Pruebas';
-            docType = 'Prueba_Documental';
-            detail = 'Justificante';
-            needsReview = true;
-            reviewReason = 'Documento de prueba aportado. Pendiente de verificación por la letrada.';
-        } else if (textCombined.includes('demanda') || textCombined.includes('juicio verbal') || textCombined.includes('procedimiento ordinario')) {
-            subfolder = 'Demandas y Sentencias';
-            docType = 'Demanda';
-            detail = docData.hints.numeroProcedimiento ? `Autos_${docData.hints.numeroProcedimiento.replace('/', '-')}` : 'Principal';
-            needsReview = confidence === 'baja';
-            reviewReason = confidence === 'baja' ? 'Demanda recibida pero no se ha determinado el cliente con certeza.' : 'Demanda clasificada automáticamente.';
-        } else if (textCombined.includes('sentencia') || textCombined.includes('fallo') || textCombined.includes('pronunciamos')) {
-            subfolder = 'Demandas y Sentencias';
-            docType = 'Sentencia';
-            detail = docData.hints.numeroProcedimiento ? `Autos_${docData.hints.numeroProcedimiento.replace('/', '-')}` : 'Resolucion';
-            needsReview = confidence === 'baja';
-            reviewReason = confidence === 'baja' ? 'Sentencia recibida sin caso claro.' : 'Sentencia registrada.';
-        } else if (textCombined.includes('auto ') || textCombined.includes('decreto') || textCombined.includes('diligencia') || textCombined.includes('providencia')) {
-            subfolder = 'Demandas y Sentencias';
-            docType = 'Resolucion_Judicial';
-            detail = 'Auto';
-            needsReview = confidence === 'baja';
-            reviewReason = 'Resolución judicial detectada.';
-        } else if (subfolder === 'Contratos' || textCombined.includes('contrato') || textCombined.includes('arrendamiento') || textCombined.includes('compraventa') || textCombined.includes('estipulaciones')) {
-            subfolder = 'Contratos';
-            docType = 'Contrato';
-            detail = 'Acuerdo';
-            needsReview = confidence === 'baja';
-            reviewReason = 'Contrato detectado en el contenido.';
-        } else {
-            docType = subfolder !== 'Otros' ? sanitizeFilename(subfolder) : 'Doc';
-            detail = matchedCase !== 'Por Clasificar' ? 'Expediente' : 'Pendiente';
-            needsReview = confidence === 'baja';
-            reviewReason = confidence === 'baja'
-                ? 'Documento sin clasificación directa evidente. Requiere revisión manual.'
-                : `Clasificado por motor híbrido (${hybrid.method}).`;
-        }
-    }
-
-    if (confidence === 'baja') {
-        needsReview = true;
-    }
-
-    // 5. Generación del nuevo nombre estandarizado
-    const dateStr = findDateInText(extractedText);
-    const cleanCase = sanitizeFilename(matchedCase);
-    const cleanDocType = sanitizeFilename(docType);
-    const cleanDetail = sanitizeFilename(detail);
-
-    // Formato: Tipo_Detalle_Caso_Fecha.ext
-    const newFilename = `${cleanDocType}_${cleanDetail}_${cleanCase}_${dateStr}${ext}`;
-
-    // Resumen breve extraído (combinando resumen IA + extracto de texto o texto OCR)
-    const fullTextForSearch = extractedText || hybrid.ocrText || '';
-    let summary = '';
-    if (hybrid.summary && hybrid.method === 'hibrido-ia') {
-        summary = `🤖 ${hybrid.summary}` + (fullTextForSearch ? ` — "${fullTextForSearch.replace(/\s+/g, ' ').slice(0, 180)}..."` : '');
-    } else if (fullTextForSearch.length > 0) {
-        summary = fullTextForSearch.replace(/\s+/g, ' ').slice(0, 250) + '...';
-    } else {
-        summary = `Archivo clasificado como ${docType} (${subfolder}) a partir de metadatos y nombre original: "${originalFilename}".`;
-    }
-
-    return {
-        casoName: matchedCase,
-        subfolder,
-        originalName: originalFilename,
-        newName: newFilename,
-        type: isVideo ? 'video' : (isAudio ? 'audio' : (isImage ? 'image' : (ext === '.pdf' ? 'pdf' : 'word'))),
-        status: needsReview ? 'needs_review' : 'reviewed',
-        confidence,
-        method: hybrid.method,
-        isLegalDocument: hybrid.isLegalDocument,
-        reviewReason,
-        summary,
-        contentText: fullTextForSearch.slice(0, 4000),
-        date: getFormattedDate(stats.mtime)
-    };
-}
-
-// Mover archivo a destino con reintentos, soporte para archivos abiertos en Word y nombre único
+// --- PIPELINE MULTI-AGENTE 100% LOCAL (AGENTE 1, AGENTE 2, AGENTE 3 Y AGENTE 4) ---
 async function processAndMoveFile(sourcePath, originalFilename, options = {}) {
     console.log(`\n📄 [ARCHIVO DETECTADO]: ${originalFilename}`);
-    console.log(`🧠 Iniciando análisis híbrido (Script + Agente IA)...`);
+    console.log(`🔒 Iniciando Sistema Multi-Agente 100% Local (localhost:11434 - Privacidad RGPD)...`);
 
-    const analysis = await analyzeDocument(sourcePath, originalFilename);
+    const analysis = await analyzeWithMultiAgentLocal(sourcePath, originalFilename, DEST_DIR);
 
-    // Si viene del escaneo automático de carpetas y NO es un documento jurídico/de caso, no tocarlo
+    // Si viene del escaneo automático de carpetas y el Agente 1 determina que NO es jurídico, no tocarlo
     if (options.onlyIfLegal && !analysis.isLegalDocument) {
-        console.log(`⏭️  [Ignorado] "${originalFilename}" no parece un documento jurídico de un caso.`);
+        console.log(`⏭️  [${analysis.method}] Ignorado "${originalFilename}": ${analysis.reviewReason}`);
         return false;
     }
 
@@ -309,65 +111,21 @@ async function processAndMoveFile(sourcePath, originalFilename, options = {}) {
         return false;
     }
 
-    console.log(`✅ Análisis completado (${analysis.method}):`);
-    console.log(`   📂 Caso asignado: "${analysis.casoName}" (Confianza: ${analysis.confidence})`);
-    console.log(`   📁 Subcarpeta: "${analysis.subfolder}"`);
-    console.log(`   🏷️  Nuevo nombre propuesto: "${analysis.newName}"`);
-    console.log(`   ⚠️  Estado: ${analysis.status === 'needs_review' ? 'REQUIERE REVISIÓN' : 'CONFIRMADO'}`);
+    console.log(`✅ Análisis Multi-Agente completado (${analysis.method}):`);
+    console.log(`   📂 Carpeta Caso + Fecha: "${analysis.casoName}" (Confianza: ${analysis.confidence})`);
+    console.log(`   📁 Subcarpeta destino: "${analysis.subfolder}"`);
+    console.log(`   🏷️  Nuevo nombre estandarizado: "${analysis.newName}"`);
 
-    const caseFolderPath = path.join(DEST_DIR, analysis.casoName);
-    const subfolderPath = path.join(caseFolderPath, analysis.subfolder);
+    // Agente 4: Crear carpeta "<Caso> - <Fecha>", subcarpetas ('Demandas y Sentencias', 'Pruebas', etc.) y mover el archivo
+    const { moved, finalFilename, destPath } = await executeMoveToCaseFolder(
+        sourcePath,
+        DEST_DIR,
+        analysis.casoName,
+        analysis.subfolder,
+        analysis.newName
+    );
 
-    if (!fs.existsSync(caseFolderPath)) {
-        fs.mkdirSync(caseFolderPath, { recursive: true });
-    }
-    if (!fs.existsSync(subfolderPath)) {
-        fs.mkdirSync(subfolderPath, { recursive: true });
-    }
-
-    // Asegurar que el nombre de destino no colisione
-    let finalFilename = analysis.newName;
-    let destPath = path.join(subfolderPath, finalFilename);
-    let counter = 1;
-    const ext = path.extname(finalFilename);
-    const baseWithoutExt = path.basename(finalFilename, ext);
-
-    while (fs.existsSync(destPath)) {
-        finalFilename = `${baseWithoutExt}_(${counter})${ext}`;
-        destPath = path.join(subfolderPath, finalFilename);
-        counter++;
-    }
-
-    // Mover archivo con reintentos; si está abierto en Word (EBUSY), copiarlo para que aparezca ya en la web
-    const tryMoveOrCopy = async (src, dest, retries = 2) => {
-        try {
-            fs.renameSync(src, dest);
-            console.log(`🚀 [ÉXITO] Archivo movido y organizado en:\n   ${dest}\n`);
-            return true;
-        } catch (err) {
-            if ((err.code === 'EBUSY' || err.code === 'EPERM') && retries > 0) {
-                console.log(`⚠️ Archivo en uso (posiblemente abierto en Word o descargándose). Reintentando en 1s...`);
-                await delay(1000);
-                return await tryMoveOrCopy(src, dest, retries - 1);
-            } else if (err.code === 'EBUSY' || err.code === 'EPERM') {
-                try {
-                    fs.copyFileSync(src, dest);
-                    console.log(`📋 [COPIADO EN VIVO] El archivo sigue abierto en Word, se ha copiado a:\n   ${dest}\n`);
-                    return true;
-                } catch (copyErr) {
-                    console.error(`❌ Error al copiar archivo bloqueado: ${copyErr.message}`);
-                    return false;
-                }
-            } else {
-                console.error(`❌ Error al mover archivo: ${err.message}`);
-                return false;
-            }
-        }
-    };
-
-    const moved = await tryMoveOrCopy(sourcePath, destPath);
     if (moved) {
-        // Guardar metadatos
         const metadata = loadMetadata();
         const relPath = path.relative(DEST_DIR, destPath);
         const fileId = Buffer.from(destPath).toString('base64');
@@ -389,13 +147,15 @@ async function processAndMoveFile(sourcePath, originalFilename, options = {}) {
         metadata[relPath] = metaEntry;
         saveMetadata(metadata);
 
-        // Sincronizar automáticamente con la nube (Supabase) si está configurada
-        syncFileToCloud({
-            ...metaEntry,
-            name: finalFilename,
-            fullPath: destPath,
-            size: (stats.size / (1024 * 1024)).toFixed(2) + ' MB'
-        }).catch(() => {});
+        // Solo sincroniza con la nube si PRIVACY_LOCAL_ONLY es false
+        if (hasSupabaseConfig()) {
+            syncFileToCloud({
+                ...metaEntry,
+                name: finalFilename,
+                fullPath: destPath,
+                size: (stats.size / (1024 * 1024)).toFixed(2) + ' MB'
+            }).catch(() => {});
+        }
     }
     return moved;
 }
@@ -481,19 +241,23 @@ app.get('/api/cases', (req, res) => {
     }
 });
 
-// 2b. Crear una nueva carpeta de Caso manualmente desde la web
+// 2b. Crear una nueva carpeta de Caso manualmente desde la web (con Nombre del Caso + Fecha y subcarpeta Pruebas)
 app.post('/api/cases', (req, res) => {
     try {
         const rawName = (req.body.caseName || '').replace(/[<>:"/\\|?*]/g, '').trim();
         if (!rawName) {
             return res.status(400).json({ error: 'Nombre de caso vacío' });
         }
-        const finalCaseName = /^caso\s+/i.test(rawName) ? rawName : `Caso ${rawName}`;
-        const caseDir = path.join(DEST_DIR, finalCaseName);
-        if (!fs.existsSync(caseDir)) {
-            fs.mkdirSync(caseDir, { recursive: true });
+        const baseCase = /^caso\s+/i.test(rawName) ? rawName : `Caso ${rawName}`;
+        const hasDate = /\d{4}-\d{2}-\d{2}/.test(baseCase);
+        const finalCaseName = hasDate ? baseCase : `${baseCase} - ${getFormattedDate()}`;
+
+        ensureCaseFolderStructure(DEST_DIR, finalCaseName, 'Pruebas');
+        setActiveCaseContext({ caseFolder: finalCaseName, clientBaseName: baseCase });
+
+        if (hasSupabaseConfig()) {
+            syncCaseToCloud(finalCaseName).catch(() => {});
         }
-        syncCaseToCloud(finalCaseName).catch(() => {});
         res.json({ success: true, caseName: finalCaseName });
     } catch (err) {
         res.status(500).json({ error: err.message });
@@ -715,12 +479,26 @@ app.post('/api/upload', upload.array('files'), async (req, res) => {
     }
 });
 
-// 8. Estado del motor híbrido, Secret Manager y Nube
-app.get('/api/status', (req, res) => {
+// 8. Estado del Sistema Multi-Agente 100% Local (localhost:11434) y Privacidad RGPD
+app.get('/api/status', async (req, res) => {
+    const ollamaStatus = await ensureLocalOllamaRunning();
+    const localCfg = getLocalAIConfig();
     res.json({
         online: true,
-        aiEnabled: hasGeminiKey(),
-        engineMode: hasGeminiKey() ? 'Híbrido (Script + Gemini IA)' : 'Híbrido (Script Local)',
+        aiEnabled: ollamaStatus.online,
+        privacyLocalOnly: isLocalPrivacyOnly(),
+        engineMode: 'Multi-Agente 100% Localhost (Ollama RGPD)',
+        localAI: {
+            ...localCfg,
+            online: ollamaStatus.online,
+            installedModels: ollamaStatus.models,
+            agents: [
+                'Agente 1: Filtro Privacidad y Relevancia Jurídica',
+                'Agente 2: Analista de Expedientes (Caso + Fecha)',
+                'Agente 3: Visión Local de Fotos y Vídeos (moondream + ffmpeg)',
+                'Agente 4: Ejecutor de Carpetas y Pruebas en Disco'
+            ]
+        },
         watchDir: WATCH_DIR,
         watchDirs: WATCH_DIRS,
         destDir: DEST_DIR,
@@ -737,6 +515,7 @@ app.get('/api/cloud/status', (req, res) => {
     }
     res.json({
         ...getCloudStatus(),
+        privacyLocalOnly: isLocalPrivacyOnly(),
         sqlScript
     });
 });
@@ -800,32 +579,21 @@ app.post('/api/auth/verify', (req, res) => {
 });
 
 const PORT = Number(getSecret('PORT', '3001')) || 3001;
-app.listen(PORT, () => {
+app.listen(PORT, async () => {
+    const ollamaStatus = await ensureLocalOllamaRunning();
     console.log(`📡 Backend escuchando en http://localhost:${PORT}`);
-    console.log('==============================================');
-    console.log('🤖 ROBOT HÍBRIDO (SCRIPT + AGENTE IA) INICIADO');
-    console.log(`🔑 Clave Gemini (.env): ${getMaskedKeyStatus('GEMINI_API_KEY')}`);
-    console.log(`☁️  Nube Supabase: ${hasSupabaseConfig() ? 'Conectada y Sincronizando' : 'Modo Local (Configurable desde el botón Nube en la web)'}`);
+    console.log('==============================================================');
+    console.log('🔒 SISTEMA MULTI-AGENTE 100% LOCAL (PRIVACIDAD RGPD) INICIADO');
+    console.log(`🧠 Motor IA Local: ${getMaskedKeyStatus()} [Online: ${ollamaStatus.online ? 'SÍ' : 'NO'}]`);
+    console.log('   ├─ Agente 1: Filtro de Privacidad y Lectura PDF/Word');
+    console.log('   ├─ Agente 2: Extractor de Caso + Fecha del Expediente');
+    console.log('   ├─ Agente 3: Visión Local de Fotos y Vídeos (moondream + ffmpeg)');
+    console.log('   └─ Agente 4: Creador de Carpetas (Caso - Fecha / Pruebas)');
+    console.log(`🛡️  Privacidad Estricta Local: ${isLocalPrivacyOnly() ? 'ACTIVA (Ningún dato sale del PC)' : 'Híbrida'}`);
     console.log(`👁️  Vigilando (${WATCH_DIRS.length} carpetas):`);
     WATCH_DIRS.forEach(dir => console.log(`    - ${dir}`));
     console.log(`📁 Guardando casos en: ${DEST_DIR}`);
-    console.log('==============================================\n');
-
-    // Si Supabase está configurado, sincronizar expedientes locales al arrancar
-    if (hasSupabaseConfig()) {
-        try {
-            const filesList = getAllFiles(DEST_DIR);
-            const casesList = fs.readdirSync(DEST_DIR).filter(item => {
-                const itemPath = path.join(DEST_DIR, item);
-                return fs.statSync(itemPath).isDirectory() && !item.startsWith('.');
-            });
-            syncAllLocalToCloud(filesList, casesList).then(r => {
-                if (r.synced) {
-                    console.log(`☁️  [Sincronización Inicial Nube] ${r.count} documentos sincronizados con Supabase.`);
-                }
-            }).catch(() => {});
-        } catch (_) {}
-    }
+    console.log('==============================================================\n');
 });
 
 // --- ROBOT VIGILANTE MULTI-CARPETA (DESCARGAS, ESCRITORIO Y DOCUMENTOS) ---

@@ -10,14 +10,12 @@ import { CloudSettingsModal } from './components/CloudSettingsModal';
 import { LoginGate } from './components/LoginGate';
 import { fetchFilesUnified, deleteFileUnified } from './services/cloudClient';
 import type { FileData, FileType } from './data/mockFiles';
-import { RefreshCcw, AlertTriangle, ChevronUp, ChevronDown, Cloud } from 'lucide-react';
+import { RefreshCcw, AlertTriangle, ChevronUp, ChevronDown } from 'lucide-react';
 
 function App() {
   const [files, setFiles] = useState<FileData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [connectionMode, setConnectionMode] = useState<'local+cloud' | 'local' | 'cloud' | 'offline'>('local');
-  const [cloudConfigured, setCloudConfigured] = useState<boolean>(false);
   const [showCloudModal, setShowCloudModal] = useState<boolean>(false);
   
   const [selectedCase, setSelectedCase] = useState<string | null>(null);
@@ -30,16 +28,13 @@ function App() {
 
   const [viewingFile, setViewingFile] = useState<FileData | null>(null);
 
-  // Obtener archivos desde el Robot Local o desde Supabase en la Nube
+  // Obtener archivos desde el Robot Multi-Agente Local
   const fetchFiles = async () => {
     try {
       const result = await fetchFilesUnified();
       setFiles(result.files);
-      setConnectionMode(result.mode);
-      setCloudConfigured(result.cloudConfigured);
       setError(null);
     } catch (err: any) {
-      setConnectionMode('offline');
       setError(err.message);
     } finally {
       setLoading(false);
@@ -142,10 +137,8 @@ function App() {
   };
 
   const getConnectionLabel = () => {
-    if (error) return 'Sin conexión (Configura Nube o enciende Robot)';
-    if (connectionMode === 'local+cloud') return 'Híbrido: PC + Nube Sincronizados';
-    if (connectionMode === 'cloud') return 'Conectado a Nube (Acceso Remoto)';
-    return 'Sincronizado con PC Local';
+    if (error) return 'Sin conexión (Enciende el Robot Local)';
+    return '🔒 Privacidad RGPD: 4 Agentes IA en Localhost';
   };
 
   return (
@@ -181,31 +174,23 @@ function App() {
             </div>
 
             <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <button
-                type="button"
-                onClick={() => setShowCloudModal(true)}
-                title="Configurar acceso en la Nube (Supabase + Contraseña)"
+              <div
+                className="status-indicator"
+                title="Agente 1 (Filtro) + Agente 2 (Caso y Fecha) + Agente 3 (Visión Fotos/Vídeos) + Agente 4 (Disco) ejecutándose en localhost:11434"
                 style={{
-                  display: 'inline-flex',
+                  display: 'flex',
                   alignItems: 'center',
-                  gap: '6px',
-                  background: cloudConfigured ? 'rgba(34, 197, 94, 0.14)' : 'rgba(59, 130, 246, 0.16)',
-                  border: cloudConfigured ? '1px solid rgba(34, 197, 94, 0.4)' : '1px solid rgba(59, 130, 246, 0.4)',
-                  color: cloudConfigured ? '#4ade80' : '#60a5fa',
+                  gap: '8px',
+                  color: error ? '#f87171' : '#4ade80',
+                  background: error ? 'rgba(248, 113, 113, 0.1)' : 'rgba(34, 197, 94, 0.12)',
+                  border: error ? '1px solid rgba(248, 113, 113, 0.3)' : '1px solid rgba(34, 197, 94, 0.35)',
                   padding: '6px 12px',
                   borderRadius: '8px',
-                  fontSize: '0.82rem',
-                  fontWeight: 600,
-                  cursor: 'pointer'
+                  fontWeight: 600
                 }}
               >
-                <Cloud size={15} />
-                <span>{cloudConfigured ? 'Nube Activa' : 'Conectar Nube'}</span>
-              </button>
-
-              <div className="status-indicator" style={{ display: 'flex', alignItems: 'center', gap: '8px', color: error ? '#f87171' : '#4ade80' }}>
-                <RefreshCcw size={16} className={!error ? "animate-spin-slow" : ""} />
-                <span style={{ fontSize: '0.85rem' }}>{getConnectionLabel()}</span>
+                <RefreshCcw size={15} className={!error ? "animate-spin-slow" : ""} />
+                <span style={{ fontSize: '0.84rem' }}>{getConnectionLabel()}</span>
               </div>
             </div>
           </header>
